@@ -44,22 +44,27 @@ void cd(tline * line){ //Se ejecuta cuando se elige el mandato cd
 void Exit() { //Función para salir de la minishell de manera correcta
 	printf("Saliendo de la minishell de manera ordenada.\n");
 	printf("Prompt de la shell: msh>  \n");
-	fin = 1;
-    exit(0);
+	fin = 1; //finaliza el bucle del main
+    exit(0); //sale de la minishell de manera ordenada
+}
+
+void siginthandler(){ //Función para tratar CTRL+C
+	printf("\nmsh> "); //Se escribe la linea nueva con el prompt al detectar la señal, como en bash
+	fflush(stdout); //Garantiza que los datos del búfer de salida se escriban en salida estándar 
 }
 
 int main() {
 	pid_t pid;
 	char buf[1024]; // Almacena lo que el usuario introduce por la entrada estándar
 	tline * line; // objeto tline para descomponer el buf en comandos
-	signal(SIGINT,SIG_IGN); //Ignora CTRL+C
+	signal(SIGINT,siginthandler); //Tratar la señal CTRL+C con la funcion siginthandler
 	int status; //estado hijo/s
 
 	while(fin == 0){ /*Si la línea introducida no contiene ningún mandato o se ejecuta el mandato en background, 
 		se volverá a mostrar el prompt a la espera de una nueva línea.*/
 		printf("msh> ");
 
-		if (fgets(buf,1024, stdin) == NULL) { //Por si el usuario pulsa crtl + D
+		if (fgets(buf,1024, stdin) == NULL) { //Si el usuario pulsa crtl + D, se cierra la minishell
 			break;
         }
 
