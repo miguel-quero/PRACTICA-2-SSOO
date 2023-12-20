@@ -12,6 +12,8 @@
 #include <fcntl.h>
 //gcc -Wextra -Wall myshell.c -o myshell libparser.a -static
 
+//AUTORES : MIGUEL QUERO PRIETO Y ADRIÁN DUEÑAS
+
 int fin = 0; // Para finalizar el bucle del main
 
 int verificarmandato(char* mandato){ // Comprueba que el mandato se encuentra en la minishell
