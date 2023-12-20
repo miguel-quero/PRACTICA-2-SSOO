@@ -105,12 +105,13 @@ void reestablecerDescriptores(int entrada, int salida, int error, tline * line){
 	}
 }
 
-void mandatospipes(tline * line) {
-	int status;
-	pid_t pid;
-	int i;
-	int pipes[line->ncommands-1][2];
+int mandatospipes(tline * line) { //Función que ejecuta mandatos con pipes
+	int status; //estado hijo
+	pid_t pid; //Identificador del proceso actual
+	int i; //Variable utilizada para los bucles
+	int pipes[line->ncommands-1][2]; //tuberías para la comunicación entre mandatos
 	
+	//Aquí se crean las tuberías de una en una mediante un bucle, si la creación da error se muestra el mensaje por pantalla
 	for(i = 0; i < line->ncommands-1; i++){
 		if (pipe(pipes[i]) < 0) {
 			fprintf(stderr,"Fallo en la creación del pipe");
@@ -118,62 +119,71 @@ void mandatospipes(tline * line) {
 		}
 	}
 
+	//Para cada mandato introducido
 	for(i = 0; i<line->ncommands; i++){
-
+		//Verifica que el mandato no es ni umask, cd ni exit, porque no se pueden utilizar con pipes. Si es alguno de ellos se muestra el mensaje de error por pantalla
 		if(strcmp(line->commands[i].argv[0], "umask")==0 || strcmp(line->commands[i].argv[0],"exit")==0 || strcmp(line->commands[i].argv[0], "cd")==0){
 
 			fprintf(stderr,"%s: No se puede utilizar este mandato con pipes\n",line->commands[i].argv[0]);
-
-		} else if(verificarmandato(line->commands[i].filename)==1){
+			return 1; //Se sale de la función
+		} else if(verificarmandato(line->commands[i].filename)==1){ //Verifica que el mandato se encuentra en la minishell
 			fprintf(stderr, "%s : No se encuentra el mandato\n" , line->commands[i].argv[0]);
-
-		} else {
-			pid = fork();				
-			if(pid < 0){
+			return 1; //Se sale de la función
+		} else { //Si el mandato es válido
+			pid = fork(); // Se crea un nuevo proceso hijo				
+			if(pid < 0){ //Si falla el fork se muestra el error por pantalla
 				fprintf(stderr,"Falló el fork().\n%s\n",strerror(errno));
 				exit(1);
-			} else if(pid == 0){
 
-				if(i == 0){
-					close(pipes[i][0]);
-					dup2(pipes[i][1],fileno(stdout));
+			} else if(pid == 0){ //Si es uno de los hijos
+
+				if(i == 0){ //Primer mandato a ejecutar
+					close(pipes[i][0]); //Se cierra el extremo de lectura del primer pipe
+					dup2(pipes[i][1],fileno(stdout)); //Se redirige la salida estándar al extremo de escritura del primer pipe
+
+					//Aquí se ejecuta el primer mandato
 					execvp(line->commands[i].argv[0],line->commands[i].argv);
-
+					//Si llega aquí es que se ha producido un error en el execvp
 					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
 					exit(1);
 					
-				}else if(i == (line->ncommands-1)){
-					close(pipes[i-1][1]);
-					dup2(pipes[i-1][0],fileno(stdin));
-					execvp(line->commands[i].argv[0],line->commands[i].argv);
+				}else if(i == (line->ncommands-1)){ //Último mandato a ejecutar
+					close(pipes[i-1][1]); //Se cierra el extremo de escritura del penúltimo pipe
+					dup2(pipes[i-1][0],fileno(stdin)); //Y se redirige la entrada estándar al extremo de lectura del penúltimo pipe 
 
+					//Aquí se ejecuta el último mandato
+					execvp(line->commands[i].argv[0],line->commands[i].argv);
+					//Si llega aquí es que se ha producido un error en el execvp
 					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
 					exit(1);
 					
-				}else{		
-					close(pipes[i][0]);	
-					close(pipes[i-1][1]);	
-					dup2(pipes[i-1][0],fileno(stdin));	
-					dup2(pipes[i][1],fileno(stdout));
-
+				}else{	//Mandatos intermedios
+					close(pipes[i][0]);	//Se cierra el extremo de lectura del pipe actual
+					close(pipes[i-1][1]); //Se cierra el extremo de escritura del pipe anterior
+					dup2(pipes[i-1][0],fileno(stdin));	//Se redirige la entrada estándar al extremo de lectura del pipe anterior
+					dup2(pipes[i][1],fileno(stdout)); //Y la salida estándar al extremo de escritura del pipe actual
+					
+					//Aquí se ejecuta el mandato intermedio
 					execvp(line->commands[i].argv[0],line->commands[i].argv);	
-
+					//Si llega aquí es que se ha producido un error en el execvp
 					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
 					exit(1);
 				}
-			} else {
-				if(i!=(line->ncommands-1)){
+			} else { //Si es el proceso padre
+				if(i!=(line->ncommands-1)){ //Se cierran todos los extremos de escritura de los pipes, excepto el del último mandato
 					close(pipes[i][1]);
 				}
 			}
 		}		
 	}
+	//Se espera a que todos los procesos hijos finalicen. El código es prácticamente igual a la situación de un solo mandato
 	for (i = 0; i < line->ncommands; ++i) {
 		wait(&status);
 		if(WIFEXITED(status)!=0)
 		if(WEXITSTATUS(status)!=0)
 			printf("El comando no se ejecutó correctamente\n");
 	}
+	return 0; //Devuelve 0 si se ejecutó todo de forma correcta.
 }
 
 int main() {
@@ -213,7 +223,7 @@ int main() {
 			printf("redirección de error: %s\n", line->redirect_error);
 			redireccionError(line->redirect_error);
 		}
-		if (line->background) {
+		if (line->background) { //No implementado
 			printf("comando a ejecutarse en background\n");
 		} 
 
