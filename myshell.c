@@ -54,11 +54,13 @@ void siginthandler(){ //Función para tratar CTRL+C
 }
 
 void Umask(tline * line){ //Funcion para ejecutar umask
+	mode_t mask; //máscara a establecer
+	mode_t maskantigua; //máscara anterior
 	if (line->commands->argc != 2) { //Si la entrada estándar no contiene un número se muestra el siguiente error indicando el uso del mandato
         fprintf(stderr, "Uso: %s <numero_octal>\n", line->commands->argv[0]);
     } else { //Si la entrada contiene un número
-		mode_t mask = strtol(line->commands->argv[1],NULL,8); //Se utiliza para convertir un string en un número con una base específica, en este caso 8 (octal)
-    	mode_t maskantigua = umask(mask); //Establece la máscara umask de tipo mode_t pasada por parámetro, y devuelve la máscara anterior
+		mask = strtol(line->commands->argv[1],NULL,8); //Se utiliza para convertir un string en un número con una base específica, en este caso 8 (octal)
+    	maskantigua = umask(mask); //Establece la máscara umask de tipo mode_t pasada por parámetro, y devuelve la máscara anterior
 		printf("La máscara umask anterior era %#o.\n", maskantigua); 
     	printf("La máscara umask ahora es %#o.\n", mask);
 	}
@@ -103,6 +105,77 @@ void reestablecerDescriptores(int entrada, int salida, int error, tline * line){
 	}
 }
 
+void mandatospipes(tline * line) {
+	int status;
+	pid_t pid;
+	int i;
+	int pipes[line->ncommands-1][2];
+	
+	for(i = 0; i < line->ncommands-1; i++){
+		if (pipe(pipes[i]) < 0) {
+			fprintf(stderr,"Fallo en la creación del pipe");
+			exit(1);
+		}
+	}
+
+	for(i = 0; i<line->ncommands; i++){
+
+		if(strcmp(line->commands[i].argv[0], "umask")==0 || strcmp(line->commands[i].argv[0],"exit")==0 || strcmp(line->commands[i].argv[0], "cd")==0){
+
+			fprintf(stderr,"%s: No se puede utilizar este mandato con pipes\n",line->commands[i].argv[0]);
+
+		} else if(verificarmandato(line->commands[i].filename)==1){
+			fprintf(stderr, "%s : No se encuentra el mandato\n" , line->commands[i].argv[0]);
+
+		} else {
+			pid = fork();				
+			if(pid < 0){
+				fprintf(stderr,"Falló el fork().\n%s\n",strerror(errno));
+				exit(1);
+			} else if(pid == 0){
+
+				if(i == 0){
+					close(pipes[i][0]);
+					dup2(pipes[i][1],fileno(stdout));
+					execvp(line->commands[i].argv[0],line->commands[i].argv);
+
+					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
+					exit(1);
+					
+				}else if(i == (line->ncommands-1)){
+					close(pipes[i-1][1]);
+					dup2(pipes[i-1][0],fileno(stdin));
+					execvp(line->commands[i].argv[0],line->commands[i].argv);
+
+					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
+					exit(1);
+					
+				}else{		
+					close(pipes[i][0]);	
+					close(pipes[i-1][1]);	
+					dup2(pipes[i-1][0],fileno(stdin));	
+					dup2(pipes[i][1],fileno(stdout));
+
+					execvp(line->commands[i].argv[0],line->commands[i].argv);	
+
+					fprintf(stderr,"Error al ejecutar el comando: %s\n",strerror(errno));
+					exit(1);
+				}
+			} else {
+				if(i!=(line->ncommands-1)){
+					close(pipes[i][1]);
+				}
+			}
+		}		
+	}
+	for (i = 0; i < line->ncommands; ++i) {
+		wait(&status);
+		if(WIFEXITED(status)!=0)
+		if(WEXITSTATUS(status)!=0)
+			printf("El comando no se ejecutó correctamente\n");
+	}
+}
+
 int main() {
 	//Guardamos los descriptores de archivo predeterminados para luego reestablecerlos si se cambian en ejecución
 	int Salida=dup(fileno(stdout));
@@ -113,7 +186,7 @@ int main() {
 	char buf[1024]; // Almacena lo que el usuario introduce por la entrada estándar
 	tline * line; // objeto tline para descomponer el buf en comandos
 	signal(SIGINT,siginthandler); //Tratar la señal CTRL+C con la funcion siginthandler
-	int status; //estado hijo/s
+	int status; //estado hijo
 
 	while(fin == 0){ /*Si la línea introducida no contiene ningún mandato o se ejecuta el mandato en background, 
 		se volverá a mostrar el prompt a la espera de una nueva línea.*/
@@ -160,7 +233,7 @@ int main() {
 					}else if(pid==0){ //  Proceso Hijo
 								execvp(line->commands[0].filename,line->commands[0].argv);
 								//Si llega aquí es que se ha producido un error en el execvp
-								printf("Error al ejecutar el comando: %s\n", strerror(errno));
+								printf("Error al ejecutar el comando: %s\n",strerror(errno));
 								exit(1);
 					}else{  /*Proceso padre
 						WIFEXITED(estadoHijo) es 0 si el hijo ha terminado de una manera anormal. 
@@ -177,11 +250,11 @@ int main() {
 					}
 			}
 		}else if(line->ncommands>1){ // Si se ejecuta más de 1 mandato
-			
+			mandatospipes(line); //Hemos creado esta funcion a parte para gestionar los mandatos con pipes por separado porque sino el main sería bastante extenso
 		}
 
 		//Se utiliza para reestablecer los descriptores estándar
 		reestablecerDescriptores(Entrada,Salida,Error,line);
 	}
-	return 0;
+	return 0; //Devuelve 0 al finalizar el bucle
 }
